@@ -1,0 +1,59 @@
+# Cada 15 minutos: junta pronósticos, avisos del SMN y partes de aeropuertos, y publica el sitio en GitHub Pages.
+# El repo es público a propósito: Pages y los minutos de Actions son gratis así, y no hay nada secreto acá.
+name: Actualizar
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Los avisos del SMN ya bajados se guardan entre corridas: si se piden todos de nuevo, el SMN corta con 429.
+      - uses: actions/cache@v4
+        with:
+          path: cache_avisos
+          key: avisos-${{ github.run_id }}
+          restore-keys: avisos-
+
+      - run: python generar.py
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: sitio
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      # GitHub apaga la programación de un repo público sin commits en 60 días: un commit vacío cada 50 la mantiene.
+      - name: Mantener viva la programación
+        run: |
+          ultimo=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - ultimo )) -gt $(( 50 * 86400 )) ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "Mantener activa la actualización programada"
+            git push
+          fi
